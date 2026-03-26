@@ -114,7 +114,7 @@ def get_match_index_hybrid(options, value):
     for i, opt in enumerate(options):
         if opt.strip().lower() == val_lower:
             return i, ""
-    return len(options), val_str
+    return 0, ""
 
 # =========================================================
 # 1. 이미지 복사/붙여넣기 섹션
