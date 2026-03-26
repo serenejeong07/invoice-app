@@ -31,11 +31,11 @@ def load_options():
         pass
     
     return {
-        "opt_manager": ["세림", "Serene"],
-        "opt_shipping": ["DHL", "Fedex"],
-        "opt_category": ["SKIN CARE LOTION SERUM", "Line Body", "Advanced Porcelain Radiance Package"],
-        "opt_qty": ["10", "15", "20", "25", "50"],
-        "opt_amount": ["$50", "$100", "$200"]
+        "opt_manager": ['세림', '병욱', '주현'],
+        "opt_shipping": ['DHL', 'Fedex', '미국물류', '프랑스물류', 'DHL(빠른)'],
+        "opt_category": ['SKIN CARE LOTION SERUM', 'SKIN CARE SERUM AMPOULE', 'SKIN CARE ESSENCE AMPOULE', 'COSMETIC MOISTURIZERS FOR PERSONAL CARE'],
+        "opt_qty": ['5', '10', '12', '15', '20', '25', '30'],
+        "opt_amount": ['$50', '$75', '$90', '$100', '$120', '$150', '$200']
     }
 
 def save_options(options_dict):
@@ -48,11 +48,11 @@ def save_options(options_dict):
 # 세션 상태에 드롭다운 파일 로드 및 초기값 세팅 (새로고침 시에도 유지되도록)
 if "options_loaded" not in st.session_state:
     loaded = load_options()
-    st.session_state.opt_manager = loaded.get("opt_manager", ["세림", "Serene"])
-    st.session_state.opt_shipping = loaded.get("opt_shipping", ["DHL", "Fedex"])
-    st.session_state.opt_category = loaded.get("opt_category", ["SKIN CARE LOTION SERUM", "Line Body"])
-    st.session_state.opt_qty = loaded.get("opt_qty", ["10", "15", "20"])
-    st.session_state.opt_amount = loaded.get("opt_amount", ["$50", "$100", "$200"])
+    st.session_state.opt_manager = loaded.get("opt_manager", ['세림', '병욱', '주현'])
+    st.session_state.opt_shipping = loaded.get("opt_shipping", ['DHL', 'Fedex', '미국물류', '프랑스물류', 'DHL(빠른)'])
+    st.session_state.opt_category = loaded.get("opt_category", ['SKIN CARE LOTION SERUM', 'SKIN CARE SERUM AMPOULE', 'SKIN CARE ESSENCE AMPOULE', 'COSMETIC MOISTURIZERS FOR PERSONAL CARE'])
+    st.session_state.opt_qty = loaded.get("opt_qty", ['5', '10', '12', '15', '20', '25', '30'])
+    st.session_state.opt_amount = loaded.get("opt_amount", ['$50', '$75', '$90', '$100', '$120', '$150', '$200'])
     st.session_state.options_loaded = True
 
 st.title("인보이스 데이터 추출 및 카카오톡 메시지 생성기")
@@ -106,6 +106,16 @@ def extract_invoice_data(image_file_bytes):
     except Exception as e:
         return {"error": str(e)}
 
+def get_match_index_hybrid(options, value):
+    if not value:
+        return 0, ""
+    val_str = str(value).strip()
+    val_lower = val_str.lower()
+    for i, opt in enumerate(options):
+        if opt.strip().lower() == val_lower:
+            return i, ""
+    return len(options), val_str
+
 # =========================================================
 # 1. 이미지 복사/붙여넣기 섹션
 # =========================================================
@@ -151,7 +161,11 @@ if paste_result.image_data is not None:
             st.session_state.edit_items = pd.DataFrame(raw_items)
             
             # 새로운 데이터를 추출할 때마다 모든 선택값을 초기화하여 항상 첫번째 항목(index 0)으로 돌아가게 설정
-            for k in ["sel_manager", "sel_shipping", "sel_category", "sel_qty", "sel_amount"]:
+            keys_to_clear = [
+                "sel_manager", "sel_shipping", "sel_category", "sel_qty", "sel_amount",
+                "custom_manager", "custom_shipping", "custom_category", "custom_qty", "custom_amount"
+            ]
+            for k in keys_to_clear:
                 if k in st.session_state:
                     del st.session_state[k]
 
@@ -241,12 +255,26 @@ if st.session_state.extracted_data is not None:
             e_date = st.text_input("날짜", value=today_yymmdd)
             manual_batch = st.text_input("주문 번호", value="11")
             
-            # 여기서 AI 추출 로직과 무관하게 오로지 윗부분 텍스트에서 저장된 순서(cur_*)대로만 나타나도록 연결됨.
-            manual_manager = st.selectbox("담당자 이름", options=cur_manager, key="sel_manager")
-            manual_shipping = st.selectbox("물류", options=cur_shipping, key="sel_shipping")
-            manual_category = st.selectbox("인보이스 품명", options=cur_category, key="sel_category")
-            e_total_qty = st.selectbox("인보이스 수량", options=cur_qty, key="sel_qty")
-            e_total_amount = st.selectbox("인보이스 금액", options=cur_amount, key="sel_amount")
+            # AI 추출 결과를 기반으로 드롭다운 기본값(index) 자동 매칭
+            match_base = extracted_data if extracted_data and "error" not in extracted_data else {}
+            
+            idx_manager, def_manager = get_match_index_hybrid(cur_manager, match_base.get("담당자 이름", ""))
+            idx_shipping, def_shipping = get_match_index_hybrid(cur_shipping, match_base.get("물류", ""))
+            idx_category, def_category = get_match_index_hybrid(cur_category, match_base.get("인보이스 품명", ""))
+            idx_qty, def_qty = get_match_index_hybrid(cur_qty, match_base.get("total_qty", ""))
+            idx_amount, def_amount = get_match_index_hybrid(cur_amount, match_base.get("total_amount", ""))
+            
+            def render_hybrid(label, options, idx, def_val, key_name):
+                sel = st.selectbox(label, options=options + ["직접 입력"], index=idx, key=f"sel_{key_name}")
+                if sel == "직접 입력":
+                    return st.text_input(f"{label} 입력", value=def_val, key=f"custom_{key_name}")
+                return sel
+
+            manual_manager = render_hybrid("담당자 이름", cur_manager, idx_manager, def_manager, "manager")
+            manual_shipping = render_hybrid("물류", cur_shipping, idx_shipping, def_shipping, "shipping")
+            manual_category = render_hybrid("인보이스 품명", cur_category, idx_category, def_category, "category")
+            e_total_qty = render_hybrid("인보이스 수량", cur_qty, idx_qty, def_qty, "qty")
+            e_total_amount = render_hybrid("인보이스 금액", cur_amount, idx_amount, def_amount, "amount")
             
         st.markdown("#### 품목 리스트 편집 (DataFrame)")
         st.caption("항목을 직접 더블 클릭하여 내용을 수정하거나, 우측 상단의 x로 행을 삭제/추가할 수 있습니다.")
